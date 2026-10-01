@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function ForbiddenPage() { return <main className="grid min-h-screen place-items-center bg-slate-50 p-6"><div className="text-center"><p className="text-sm font-semibold text-rose-700">403 · Access denied</p><h1 className="mt-3 text-3xl font-semibold">You don’t have access to this page</h1><p className="mt-2 text-slate-600">Ask an administrator to grant the required permission.</p><Link className="mt-6 inline-block text-emerald-800 underline" href="/dashboard">Return to dashboard</Link></div></main>; }

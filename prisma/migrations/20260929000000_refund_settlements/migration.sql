@@ -1,0 +1,21 @@
+CREATE TABLE `RefundSettlement` (
+    `id` VARCHAR(191) NOT NULL,
+    `refundNumber` VARCHAR(50) NOT NULL,
+    `saleId` VARCHAR(191) NOT NULL,
+    `saleReturnId` VARCHAR(191) NOT NULL,
+    `storeId` VARCHAR(191) NOT NULL,
+    `processedById` VARCHAR(191) NOT NULL,
+    `method` ENUM('CASH', 'CARD', 'BANK_TRANSFER', 'E_WALLET', 'OTHER') NOT NULL,
+    `amount` DECIMAL(15, 2) NOT NULL,
+    `reference` VARCHAR(120) NULL,
+    `settledAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `RefundSettlement_refundNumber_key`(`refundNumber`),
+    UNIQUE INDEX `RefundSettlement_saleReturnId_key`(`saleReturnId`),
+    INDEX `RefundSettlement_storeId_settledAt_idx`(`storeId`, `settledAt`),
+    INDEX `RefundSettlement_saleId_settledAt_idx`(`saleId`, `settledAt`),
+    CONSTRAINT `RefundSettlement_saleId_fkey` FOREIGN KEY (`saleId`) REFERENCES `Sale`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT `RefundSettlement_saleReturnId_fkey` FOREIGN KEY (`saleReturnId`) REFERENCES `SaleReturn`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT `RefundSettlement_storeId_fkey` FOREIGN KEY (`storeId`) REFERENCES `Store`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT `RefundSettlement_processedById_fkey` FOREIGN KEY (`processedById`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

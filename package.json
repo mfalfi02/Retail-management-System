@@ -4,17 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/unit/*.test.ts",
+    "test:integration": "node --import tsx --test tests/services/*.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
     "@prisma/client": "^6.19.0",
     "@tanstack/react-table": "^8.21.3",
     "bcryptjs": "^3.0.2",
@@ -22,14 +26,13 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "next": "16.3.6",
-    "prisma": "^6.19.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "^7.54.2",
     "recharts": "^2.15.0",
+    "server-only": "^0.0.1",
     "tailwind-merge": "^2.6.0",
-    "zod": "^3.24.1",
-    "@hookform/resolvers": "^3.10.0"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -38,9 +41,12 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "prisma": "^6.19.0",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "typescript": "^5"
   },
-  "prisma": { "seed": "tsx prisma/seed.ts" }
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
+  }
 }

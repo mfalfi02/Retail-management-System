@@ -25,9 +25,9 @@ A modular retail operations workspace built with Next.js App Router, TypeScript,
 
 Open <http://localhost:3000>. If your MySQL password is not empty, URL-encode it in `DATABASE_URL` rather than using the example value.
 
-The follow-up migrations `20260927010000_schema_stability`, `20260927020000_purchase_returns`, `20260927030000_auth_sessions`, and `20260928000000_sale_checkout_idempotency` add creator relations/statuses, return-item linking, purchase-return tables, hashed server-side sessions, and unique POS checkout keys. The first backfills historical purchase creators to the earliest user (preferring `superadmin`), attributes historical sale returns to the original cashier, marks pre-existing adjustments completed, and maps unknown historical transfer statuses to `DRAFT`. Review these backfill choices on production data before applying with `npm run db:deploy`. If there are old purchases but no users, add an appropriate user or backfill creator IDs before deployment. `db:push` is intended for local prototyping, not for tracking shared migration history.
+The follow-up migrations add schema stability/backfills, purchase returns, hashed server-side sessions, unique POS checkout keys, refund settlements, sale-return idempotency keys, and the `role.manage` permission. Review the historical backfill choices in `20260927010000_schema_stability/migration.sql` against production data before applying with `npm run db:deploy`. If there are old purchases but no users, add an appropriate user or backfill creator IDs before deployment. `db:push` is intended for local prototyping, not for tracking shared migration history.
 
-If the existing database was initialized with `db:push`, check its migration history before using `db:deploy`. Baseline the existing schema against the initial migration first; applying an unbaselined initial migration to tables that already exist will fail. The AuthSession and checkout idempotency migrations were applied to the configured development database during Phases 3 and 4.
+If the existing database was initialized with `db:push`, check its migration history before using `db:deploy`. Baseline the existing schema against the initial migration first; applying an unbaselined initial migration to tables that already exist will fail. Never use `prisma migrate reset` against a database containing data you need to keep.
 
 ## Environment
 
@@ -41,7 +41,7 @@ No real `.env` file is committed. `.env` and `.env.local` are ignored by Git.
 
 ## Development accounts
 
-The seed creates one super administrator, two administrators, one manager, two cashiers, one inventory staff member, one purchasing staff member, and one accounting staff member. All seed accounts use the development-only password `Demo-Only-2026!`; change it immediately and never seed these accounts into a production database.
+The seed creates one super administrator, two administrators, one manager, two cashiers, one inventory staff member, one purchasing staff member, and one accounting staff member. All seed accounts use the development-only password `Demo-Only-2026!`; change it immediately. The seed script refuses to run when `NODE_ENV=production`.
 
 Usernames: `superadmin`, `admin1`, `admin2`, `manager`, `cashier1`, `cashier2`, `inventory`, `purchasing`, `accounting`.
 
@@ -69,7 +69,7 @@ The schema has stores and warehouses, users/roles/permissions, product master da
 
 ## Business workflow design
 
-Inventory is represented per product and warehouse. Stock movements retain the reason, quantity and source reference for stock events; operational services should apply inventory changes and movement inserts in a single Prisma transaction. Sales belong to a store, warehouse and cashier, and may have split payment records. Purchases belong to a supplier/store/warehouse and support receiving quantities. Return and journal records are structured for future workflows.
+Inventory is represented per product and warehouse. Stock movements retain the reason, quantity and source reference for stock events; operational services apply inventory changes and movement inserts in a single Prisma transaction. Sales belong to a store, warehouse and cashier, and may have split payment records. Purchases belong to a supplier/store/warehouse and support receiving quantities. Sale returns create refund settlements transactionally; old returns predating settlement records remain unsettled historical returns. Customers and suppliers are shared master records without a store ownership column, while their transaction histories and report totals are store-scoped.
 
 Available inventory is derived as `quantity - reservedQuantity` with `calculateAvailableQuantity` in `src/lib/services/inventory.ts`. Never update stock without a movement in the same transaction. Sale completion, purchase receiving (including only newly received quantities), returns, adjustments, and transfers must be transactional. An adjustment starts in `DRAFT`; creating it alone must not change inventory. A sale return links to the original sale item so services can sum prior returns and reject quantities above the original sold amount. Journals must validate nonnegative debit/credit and balanced totals in their service before writing.
 
@@ -93,5 +93,5 @@ Settings use the flexible JSON `Setting` model. Expected keys include `company.n
 
 ## Current implementation scope
 
-The application now includes a responsive permission-aware shell, login/profile settings, a live dashboard, product catalog create/edit/list/detail, a POS backed by transactional checkout, inventory/movement/adjustment pages, purchase create/approve/receive/return flows, sales history/detail/returns, customer and supplier contact/history pages, expense entry, and sales/purchase/inventory/profit reports. POS prices, tax, inventory, store access, and checkout are validated server-side; checkout keys prevent duplicate submissions. User/role administration is read-only, product variants are not wired into stock transactions, and reporting exports, printable receipts, refund settlement, payment reconciliation, and purchase-return accounting are not implemented. Database-backed routes require reachable MySQL and applied migrations.
+The application includes a responsive permission-aware shell, database-backed authentication and editable user/role administration, dashboard analytics, product catalog, transactional POS checkout, inventory/movement/adjustment pages, purchase create/approve/receive/return flows, sales history and returns with refund settlement, customer/supplier histories, expense entry, operational and estimated-margin reports, CSV export, and print support. Financial calculations use server-side Prisma Decimal values; checkout, sale-return, and purchase-receiving requests have idempotency keys. Customers and suppliers are shared master data across stores; transaction history, counts, and report totals remain scoped by store. Product variants are not wired into stock transactions, there is no login rate limiter in the application, and payment/accounting reconciliation is not automated. Database-backed routes require reachable MySQL and all migrations to be applied.
 # Retail-management-System

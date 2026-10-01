@@ -1,0 +1,27 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { authorizedStoreScopeId, requirePermission } from "@/lib/auth/authorization";
+import { hasPermission } from "@/lib/auth/authorization";
+import { prisma } from "@/lib/db/prisma";
+import { updateProduct } from "@/lib/actions/catalog";
+import { formatCurrency } from "@/lib/utils";
+import { PageHeader, StatusBadge } from "@/components/ui/page-header";
+
+export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requirePermission("product.view");
+  const { id } = await params;
+  const storeId = authorizedStoreScopeId(user);
+  const [product, categories, brands, units] = await Promise.all([
+    prisma.product.findUnique({ where: { id }, include: { category: true, brand: true, unit: true, inventory: { where: storeId ? { warehouse: { storeId } } : {}, include: { warehouse: { select: { name: true, store: { select: { name: true } } } } }, orderBy: { warehouse: { name: "asc" } } } } }),
+    prisma.category.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" } }),
+    prisma.brand.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" } }),
+    prisma.unit.findMany({ orderBy: { name: "asc" } }),
+  ]);
+  if (!product) notFound();
+  const input = "mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm";
+  return <div className="max-w-4xl"><PageHeader title={product.name} description={`${product.sku}${product.barcode ? ` · ${product.barcode}` : ""}`} action={<Link href="/products" className="text-sm text-emerald-800 hover:underline">Back to products</Link>}/>
+    <div className="mb-5 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Selling price</p><p className="mt-1 text-lg font-semibold">{formatCurrency(product.sellingPrice.toString())}</p></div><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Category</p><p className="mt-1 font-semibold">{product.category?.name??"Uncategorized"}</p></div><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Status</p><div className="mt-2"><StatusBadge value={product.status}/></div></div></div>
+    <div className="mb-5 rounded-xl border border-slate-200 bg-white p-5"><h2 className="mb-3 font-semibold">Stock by warehouse</h2>{product.inventory.length?<div className="divide-y divide-slate-100">{product.inventory.map((stock)=><div key={stock.id} className="flex justify-between py-3 text-sm"><span>{stock.warehouse.store.name} · {stock.warehouse.name}</span><span className="font-medium">{stock.quantity.toString()} available {stock.reservedQuantity.greaterThan(0)&&<span className="font-normal text-slate-500">({stock.reservedQuantity.toString()} reserved)</span>}</span></div>)}</div>:<p className="text-sm text-slate-500">No inventory is recorded in your store scope.</p>}</div>
+    {hasPermission(user,"product.update")&&<form action={updateProduct} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-semibold">Edit product</h2><input type="hidden" name="id" value={product.id}/><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-medium">Name<input name="name" defaultValue={product.name} required maxLength={180} className={input}/></label><label className="text-sm font-medium">SKU<input name="sku" defaultValue={product.sku} required maxLength={60} className={input}/></label><label className="text-sm font-medium">Barcode<input name="barcode" defaultValue={product.barcode??""} maxLength={100} className={input}/></label><label className="text-sm font-medium">Unit<select name="unitId" defaultValue={product.unitId} className={input}>{units.map((unit)=><option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></label><label className="text-sm font-medium">Category<select name="categoryId" defaultValue={product.categoryId??""} className={input}><option value="">No category</option>{categories.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-sm font-medium">Brand<select name="brandId" defaultValue={product.brandId??""} className={input}><option value="">No brand</option>{brands.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-sm font-medium">Cost price<input name="costPrice" type="number" min="0" step="0.01" defaultValue={product.costPrice.toString()} className={input}/></label><label className="text-sm font-medium">Selling price<input name="sellingPrice" type="number" min="0.01" step="0.01" defaultValue={product.sellingPrice.toString()} className={input}/></label><label className="text-sm font-medium">Minimum stock<input name="minimumStock" type="number" min="0" step="0.001" defaultValue={product.minimumStock.toString()} className={input}/></label><label className="text-sm font-medium">Tax rate (%)<input name="taxRate" type="number" min="0" max="100" step="0.001" defaultValue={product.taxRate.toString()} className={input}/></label></div><label className="block text-sm font-medium">Description<textarea name="description" rows={3} defaultValue={product.description??""} maxLength={4000} className={`${input} h-auto py-2`}/></label><button className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white">Save changes</button></form>}
+  </div>;
+}

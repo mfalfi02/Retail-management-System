@@ -7,448 +7,763 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Status { ACTIVE INACTIVE
-}
-enum UserStatus { ACTIVE INACTIVE LOCKED
-}
-enum PurchaseStatus { DRAFT PENDING APPROVED RECEIVED PARTIALLY_RECEIVED COMPLETED CANCELLED
-}
-enum SaleStatus { DRAFT COMPLETED PARTIAL_RETURN RETURNED CANCELLED
-}
-enum PaymentStatus { UNPAID PARTIAL PAID REFUNDED
-}
-enum PaymentType { CASH CARD BANK_TRANSFER E_WALLET OTHER
-}
-enum MovementType { PURCHASE SALE SALE_RETURN PURCHASE_RETURN ADJUSTMENT TRANSFER_IN TRANSFER_OUT INITIAL_STOCK
-}
-enum PromotionType { PERCENTAGE FIXED
-}
-enum AccountType { ASSET LIABILITY EQUITY REVENUE EXPENSE
-}
-enum ExpenseStatus { DRAFT APPROVED VOID
-}
-
 model Store {
-  id String @id @default(cuid())
-  code String @unique @db.VarChar(30)
-  name String @db.VarChar(120)
-  address String? @db.Text
-  phone String? @db.VarChar(30)
-  email String? @db.VarChar(190)
-  status Status @default(ACTIVE)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String             @id @default(cuid())
+  code       String             @unique @db.VarChar(30)
+  name       String             @db.VarChar(120)
+  address    String?            @db.Text
+  phone      String?            @db.VarChar(30)
+  email      String?            @db.VarChar(190)
+  status     Status             @default(ACTIVE)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  expenses   Expense[]
+  purchases  Purchase[]
+  refunds    RefundSettlement[]
+  sales      Sale[]
+  users      User[]
   warehouses Warehouse[]
-  users User[]
-  sales Sale[]
-  purchases Purchase[]
-  expenses Expense[]
+
   @@index([name])
 }
 
 model Warehouse {
-  id String @id @default(cuid())
-  code String @db.VarChar(30)
-  name String @db.VarChar(120)
-  address String? @db.Text
-  status Status @default(ACTIVE)
-  storeId String
-  store Store @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  inventory Inventory[]
-  movements StockMovement[]
-  purchases Purchase[]
-  sales Sale[]
+  id                String            @id @default(cuid())
+  code              String            @db.VarChar(30)
+  name              String            @db.VarChar(120)
+  address           String?           @db.Text
+  status            Status            @default(ACTIVE)
+  storeId           String
+  inventory         Inventory[]
+  purchases         Purchase[]
+  sales             Sale[]
+  adjustments       StockAdjustment[]
+  movements         StockMovement[]
+  outboundTransfers StockTransfer[]   @relation("TransferSource")
+  inboundTransfers  StockTransfer[]   @relation("TransferDestination")
+  store             Store             @relation(fields: [storeId], references: [id])
+
   @@unique([storeId, code])
   @@index([storeId, name])
 }
 
 model User {
-  id String @id @default(cuid())
-  name String @db.VarChar(120)
-  username String @unique @db.VarChar(60)
-  email String? @unique @db.VarChar(190)
-  passwordHash String @db.VarChar(255)
-  phone String? @db.VarChar(30)
-  status UserStatus @default(ACTIVE)
-  storeId String?
-  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
-  roles UserRole[]
-  sales Sale[]
-  auditLogs AuditLog[]
-  expenses Expense[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                       String             @id @default(cuid())
+  name                     String             @db.VarChar(120)
+  username                 String             @unique @db.VarChar(60)
+  email                    String?            @unique @db.VarChar(190)
+  passwordHash             String             @db.VarChar(255)
+  phone                    String?            @db.VarChar(30)
+  status                   UserStatus         @default(ACTIVE)
+  storeId                  String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  auditLogs                AuditLog[]
+  authSessions             AuthSession[]
+  expenses                 Expense[]
+  createdPurchases         Purchase[]         @relation("PurchaseCreator")
+  receivedPurchases        PurchaseReceiving[] @relation("PurchaseReceivingCreator")
+  processedPurchaseReturns PurchaseReturn[]   @relation("PurchaseReturnProcessor")
+  processedRefunds         RefundSettlement[]
+  sales                    Sale[]
+  processedSaleReturns     SaleReturn[]       @relation("SaleReturnProcessor")
+  stockAdjustments         StockAdjustment[]  @relation("StockAdjustmentCreator")
+  stockMovements           StockMovement[]    @relation("StockMovementCreator")
+  stockTransfers           StockTransfer[]    @relation("StockTransferCreator")
+  store                    Store?             @relation(fields: [storeId], references: [id])
+  roles                    UserRole[]
+
   @@index([name])
+  @@index([storeId], map: "User_storeId_fkey")
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique @db.Char(64)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 model Role {
-  id String @id @default(cuid())
-  name String @unique @db.VarChar(60)
-  description String? @db.VarChar(255)
-  users UserRole[]
+  id          String           @id @default(cuid())
+  name        String           @unique @db.VarChar(60)
+  description String?          @db.VarChar(255)
   permissions RolePermission[]
+  users       UserRole[]
 }
 
 model Permission {
-  id String @id @default(cuid())
-  key String @unique @db.VarChar(100)
-  description String? @db.VarChar(255)
-  roles RolePermission[]
+  id          String           @id @default(cuid())
+  key         String           @unique @db.VarChar(100)
+  description String?          @db.VarChar(255)
+  roles       RolePermission[]
 }
 
 model UserRole {
   userId String
   roleId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@id([userId, roleId])
+  @@index([roleId], map: "UserRole_roleId_fkey")
 }
 
 model RolePermission {
-  roleId String
+  roleId       String
   permissionId String
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
   @@id([roleId, permissionId])
+  @@index([permissionId], map: "RolePermission_permissionId_fkey")
 }
 
 model Category {
-  id String @id @default(cuid())
-  name String @unique @db.VarChar(100)
-  description String? @db.Text
-  status Status @default(ACTIVE)
-  products Product[]
-  promotions Promotion[]
+  id          String      @id @default(cuid())
+  name        String      @unique @db.VarChar(100)
+  description String?     @db.Text
+  status      Status      @default(ACTIVE)
+  products    Product[]
+  promotions  Promotion[]
 }
 
 model Brand {
-  id String @id @default(cuid())
-  name String @unique @db.VarChar(100)
-  status Status @default(ACTIVE)
+  id       String    @id @default(cuid())
+  name     String    @unique @db.VarChar(100)
+  status   Status    @default(ACTIVE)
   products Product[]
 }
 
 model Unit {
-  id String @id @default(cuid())
-  name String @unique @db.VarChar(60)
-  symbol String @unique @db.VarChar(15)
+  id       String    @id @default(cuid())
+  name     String    @unique @db.VarChar(60)
+  symbol   String    @unique @db.VarChar(15)
   products Product[]
 }
 
 model Product {
-  id String @id @default(cuid())
-  sku String @unique @db.VarChar(60)
-  barcode String? @unique @db.VarChar(100)
-  name String @db.VarChar(180)
-  description String? @db.Text
-  costPrice Decimal @default(0) @db.Decimal(15, 2)
-  sellingPrice Decimal @db.Decimal(15, 2)
-  minimumStock Decimal @default(0) @db.Decimal(15, 3)
-  maximumStock Decimal? @db.Decimal(15, 3)
-  taxRate Decimal @default(0) @db.Decimal(6, 3)
-  imageUrl String? @db.VarChar(500)
-  status Status @default(ACTIVE)
-  categoryId String?
-  brandId String?
-  unitId String
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  brand Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  unit Unit @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  inventory Inventory[]
-  movements StockMovement[]
-  purchaseItems PurchaseItem[]
-  saleItems SaleItem[]
+  id                String                @id @default(cuid())
+  sku               String                @unique @db.VarChar(60)
+  barcode           String?               @unique @db.VarChar(100)
+  name              String                @db.VarChar(180)
+  description       String?               @db.Text
+  costPrice         Decimal               @default(0.00) @db.Decimal(15, 2)
+  sellingPrice      Decimal               @db.Decimal(15, 2)
+  minimumStock      Decimal               @default(0.000) @db.Decimal(15, 3)
+  maximumStock      Decimal?              @db.Decimal(15, 3)
+  taxRate           Decimal               @default(0.000) @db.Decimal(6, 3)
+  imageUrl          String?               @db.VarChar(500)
+  status            Status                @default(ACTIVE)
+  categoryId        String?
+  brandId           String?
+  unitId            String
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  inventory         Inventory[]
+  brand             Brand?                @relation(fields: [brandId], references: [id])
+  category          Category?             @relation(fields: [categoryId], references: [id])
+  unit              Unit                  @relation(fields: [unitId], references: [id])
+  variants          ProductVariant[]
   promotionProducts PromotionProduct[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  purchaseItems     PurchaseItem[]
+  saleItems         SaleItem[]
+  adjustmentItems   StockAdjustmentItem[]
+  movements         StockMovement[]
+  transferItems     StockTransferItem[]
+
   @@index([name])
   @@index([categoryId])
+  @@index([brandId], map: "Product_brandId_fkey")
+  @@index([unitId], map: "Product_unitId_fkey")
 }
 
 model ProductVariant {
-  id String @id @default(cuid())
-  productId String
-  name String @db.VarChar(100)
-  sku String @unique @db.VarChar(60)
-  barcode String? @unique @db.VarChar(100)
+  id         String  @id @default(cuid())
+  productId  String
+  name       String  @db.VarChar(100)
+  sku        String  @unique @db.VarChar(60)
+  barcode    String? @unique @db.VarChar(100)
   attributes Json?
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 model Inventory {
-  id String @id @default(cuid())
-  productId String
-  warehouseId String
-  quantity Decimal @default(0) @db.Decimal(15, 3)
-  reservedQuantity Decimal @default(0) @db.Decimal(15, 3)
-  averageCost Decimal @default(0) @db.Decimal(15, 2)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  updatedAt DateTime @updatedAt
+  id               String    @id @default(cuid())
+  productId        String
+  warehouseId      String
+  quantity         Decimal   @default(0.000) @db.Decimal(15, 3)
+  reservedQuantity Decimal   @default(0.000) @db.Decimal(15, 3)
+  averageCost      Decimal   @default(0.00) @db.Decimal(15, 2)
+  updatedAt        DateTime  @updatedAt
+  product          Product   @relation(fields: [productId], references: [id])
+  warehouse        Warehouse @relation(fields: [warehouseId], references: [id])
+
   @@unique([productId, warehouseId])
   @@index([warehouseId])
 }
 
 model StockMovement {
-  id String @id @default(cuid())
-  type MovementType
-  quantity Decimal @db.Decimal(15, 3)
-  unitCost Decimal? @db.Decimal(15, 2)
-  referenceType String? @db.VarChar(40)
-  referenceId String? @db.VarChar(100)
-  notes String? @db.Text
-  productId String
-  warehouseId String
-  createdById String?
-  createdAt DateTime @default(now())
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  id            String       @id @default(cuid())
+  type          MovementType
+  quantity      Decimal      @db.Decimal(15, 3)
+  unitCost      Decimal?     @db.Decimal(15, 2)
+  referenceType String?      @db.VarChar(40)
+  referenceId   String?      @db.VarChar(100)
+  notes         String?      @db.Text
+  productId     String
+  warehouseId   String
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  createdBy     User?        @relation("StockMovementCreator", fields: [createdById], references: [id])
+  product       Product      @relation(fields: [productId], references: [id])
+  warehouse     Warehouse    @relation(fields: [warehouseId], references: [id])
+
   @@index([productId, warehouseId, createdAt])
   @@index([referenceType, referenceId])
+  @@index([createdById], map: "StockMovement_createdById_fkey")
+  @@index([warehouseId], map: "StockMovement_warehouseId_fkey")
 }
 
-model StockAdjustment { id String @id @default(cuid())
-  number String @unique @db.VarChar(40)
+model StockAdjustment {
+  id          String                @id @default(cuid())
+  number      String                @unique @db.VarChar(40)
   warehouseId String
-  reason String @db.VarChar(255)
+  reason      String                @db.VarChar(255)
   createdById String
-  createdAt DateTime @default(now())
+  createdAt   DateTime              @default(now())
+  status      StockAdjustmentStatus @default(DRAFT)
+  createdBy   User                  @relation("StockAdjustmentCreator", fields: [createdById], references: [id])
+  warehouse   Warehouse             @relation(fields: [warehouseId], references: [id])
+  items       StockAdjustmentItem[]
+
+  @@index([status, createdAt])
+  @@index([createdById], map: "StockAdjustment_createdById_fkey")
+  @@index([warehouseId], map: "StockAdjustment_warehouseId_fkey")
 }
-model StockTransfer { id String @id @default(cuid())
-  number String @unique @db.VarChar(40)
+
+model StockTransfer {
+  id              String              @id @default(cuid())
+  number          String              @unique @db.VarChar(40)
   fromWarehouseId String
-  toWarehouseId String
-  status String @default("COMPLETED") @db.VarChar(20)
-  createdById String
-  createdAt DateTime @default(now())
+  toWarehouseId   String
+  status          StockTransferStatus @default(DRAFT)
+  createdById     String
+  createdAt       DateTime            @default(now())
+  createdBy       User                @relation("StockTransferCreator", fields: [createdById], references: [id])
+  fromWarehouse   Warehouse           @relation("TransferSource", fields: [fromWarehouseId], references: [id])
+  toWarehouse     Warehouse           @relation("TransferDestination", fields: [toWarehouseId], references: [id])
+  items           StockTransferItem[]
+
+  @@index([createdById], map: "StockTransfer_createdById_fkey")
+  @@index([fromWarehouseId], map: "StockTransfer_fromWarehouseId_fkey")
+  @@index([toWarehouseId], map: "StockTransfer_toWarehouseId_fkey")
+}
+
+model StockAdjustmentItem {
+  id            String          @id @default(cuid())
+  adjustmentId  String
+  productId     String
+  quantityDelta Decimal         @db.Decimal(15, 3)
+  unitCost      Decimal?        @db.Decimal(15, 2)
+  adjustment    StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  product       Product         @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([adjustmentId], map: "StockAdjustmentItem_adjustmentId_fkey")
+}
+
+model StockTransferItem {
+  id         String        @id @default(cuid())
+  transferId String
+  productId  String
+  quantity   Decimal       @db.Decimal(15, 3)
+  product    Product       @relation(fields: [productId], references: [id])
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([transferId], map: "StockTransferItem_transferId_fkey")
 }
 
 model Customer {
-  id String @id @default(cuid())
-  customerCode String @unique @db.VarChar(40)
-  name String @db.VarChar(150)
-  email String? @db.VarChar(190)
-  phone String? @db.VarChar(30)
-  address String? @db.Text
-  gender String? @db.VarChar(20)
-  dateOfBirth DateTime?
-  status Status @default(ACTIVE)
-  loyaltyPoints Int @default(0)
-  sales Sale[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String    @id @default(cuid())
+  customerCode  String    @unique @db.VarChar(40)
+  name          String    @db.VarChar(150)
+  email         String?   @db.VarChar(190)
+  phone         String?   @db.VarChar(30)
+  address       String?   @db.Text
+  gender        String?   @db.VarChar(20)
+  dateOfBirth   DateTime?
+  status        Status    @default(ACTIVE)
+  loyaltyPoints Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sales         Sale[]
+
   @@index([name])
   @@index([phone])
 }
 
 model Supplier {
-  id String @id @default(cuid())
-  supplierCode String @unique @db.VarChar(40)
-  name String @db.VarChar(150)
-  contactPerson String? @db.VarChar(120)
-  email String? @db.VarChar(190)
-  phone String? @db.VarChar(30)
-  address String? @db.Text
-  taxNumber String? @db.VarChar(60)
-  status Status @default(ACTIVE)
-  purchases Purchase[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String     @id @default(cuid())
+  supplierCode  String     @unique @db.VarChar(40)
+  name          String     @db.VarChar(150)
+  contactPerson String?    @db.VarChar(120)
+  email         String?    @db.VarChar(190)
+  phone         String?    @db.VarChar(30)
+  address       String?    @db.Text
+  taxNumber     String?    @db.VarChar(60)
+  status        Status     @default(ACTIVE)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  purchases     Purchase[]
+
   @@index([name])
 }
 
 model Purchase {
-  id String @id @default(cuid())
-  invoiceNumber String @unique @db.VarChar(60)
-  status PurchaseStatus @default(DRAFT)
-  paymentStatus PaymentStatus @default(UNPAID)
-  purchaseDate DateTime @default(now())
-  subtotal Decimal @db.Decimal(15, 2)
-  discount Decimal @default(0) @db.Decimal(15, 2)
-  tax Decimal @default(0) @db.Decimal(15, 2)
-  shipping Decimal @default(0) @db.Decimal(15, 2)
-  grandTotal Decimal @db.Decimal(15, 2)
-  notes String? @db.Text
-  supplierId String
-  storeId String
-  warehouseId String
-  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  store Store @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  items PurchaseItem[]
-  payments PurchasePayment[]
-  createdAt DateTime @default(now())
+  id            String            @id @default(cuid())
+  invoiceNumber String            @unique @db.VarChar(60)
+  status        PurchaseStatus    @default(DRAFT)
+  paymentStatus PaymentStatus     @default(UNPAID)
+  purchaseDate  DateTime          @default(now())
+  subtotal      Decimal           @db.Decimal(15, 2)
+  discount      Decimal           @default(0.00) @db.Decimal(15, 2)
+  tax           Decimal           @default(0.00) @db.Decimal(15, 2)
+  shipping      Decimal           @default(0.00) @db.Decimal(15, 2)
+  grandTotal    Decimal           @db.Decimal(15, 2)
+  notes         String?           @db.Text
+  supplierId    String
+  storeId       String
+  warehouseId   String
+  createdAt     DateTime          @default(now())
+  createdById   String
+  createdBy     User              @relation("PurchaseCreator", fields: [createdById], references: [id])
+  store         Store             @relation(fields: [storeId], references: [id])
+  supplier      Supplier          @relation(fields: [supplierId], references: [id])
+  warehouse     Warehouse         @relation(fields: [warehouseId], references: [id])
+  items         PurchaseItem[]
+  payments      PurchasePayment[]
+  returns       PurchaseReturn[]
+  receivings    PurchaseReceiving[]
+
   @@index([purchaseDate, storeId])
+  @@index([status, purchaseDate])
+  @@index([createdById], map: "Purchase_createdById_fkey")
+  @@index([storeId], map: "Purchase_storeId_fkey")
+  @@index([supplierId], map: "Purchase_supplierId_fkey")
+  @@index([warehouseId], map: "Purchase_warehouseId_fkey")
 }
 
-model PurchaseItem { id String @id @default(cuid())
-  purchaseId String
-  productId String
-  quantity Decimal @db.Decimal(15, 3)
-  receivedQuantity Decimal @default(0) @db.Decimal(15, 3)
-  unitCost Decimal @db.Decimal(15, 2)
-  discount Decimal @default(0) @db.Decimal(15, 2)
-  tax Decimal @default(0) @db.Decimal(15, 2)
-  subtotal Decimal @db.Decimal(15, 2)
-  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+model PurchaseItem {
+  id               String               @id @default(cuid())
+  purchaseId       String
+  productId        String
+  quantity         Decimal              @db.Decimal(15, 3)
+  receivedQuantity Decimal              @default(0.000) @db.Decimal(15, 3)
+  unitCost         Decimal              @db.Decimal(15, 2)
+  discount         Decimal              @default(0.00) @db.Decimal(15, 2)
+  tax              Decimal              @default(0.00) @db.Decimal(15, 2)
+  subtotal         Decimal              @db.Decimal(15, 2)
+  product          Product              @relation(fields: [productId], references: [id])
+  purchase         Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  returnedItems    PurchaseReturnItem[] @relation("PurchaseReturnOriginalItem")
+
+  @@index([productId], map: "PurchaseItem_productId_fkey")
+  @@index([purchaseId], map: "PurchaseItem_purchaseId_fkey")
 }
-model PurchasePayment { id String @id @default(cuid())
+
+model PurchaseReceiving {
+  id            String   @id @default(cuid())
+  requestKey    String   @unique @db.Char(36)
+  requestHash   String   @db.Char(64)
+  purchaseId    String
+  receivedById  String
+  itemCount     Int
+  createdAt     DateTime @default(now())
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  receivedBy    User     @relation("PurchaseReceivingCreator", fields: [receivedById], references: [id])
+
+  @@index([purchaseId, createdAt])
+  @@index([receivedById])
+}
+
+model PurchaseReturn {
+  id            String               @id @default(cuid())
+  number        String               @unique @db.VarChar(50)
+  purchaseId    String
+  processedById String
+  status        PurchaseReturnStatus @default(COMPLETED)
+  reason        String?              @db.Text
+  amount        Decimal              @db.Decimal(15, 2)
+  createdAt     DateTime             @default(now())
+  processedBy   User                 @relation("PurchaseReturnProcessor", fields: [processedById], references: [id])
+  purchase      Purchase             @relation(fields: [purchaseId], references: [id])
+  items         PurchaseReturnItem[]
+
+  @@index([purchaseId, createdAt])
+  @@index([processedById], map: "PurchaseReturn_processedById_fkey")
+}
+
+model PurchaseReturnItem {
+  id             String         @id @default(cuid())
+  returnId       String
+  purchaseItemId String
+  quantity       Decimal        @db.Decimal(15, 3)
+  amount         Decimal        @db.Decimal(15, 2)
+  purchaseItem   PurchaseItem   @relation("PurchaseReturnOriginalItem", fields: [purchaseItemId], references: [id])
+  purchaseReturn PurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseItemId])
+  @@index([returnId], map: "PurchaseReturnItem_returnId_fkey")
+}
+
+model PurchasePayment {
+  id         String      @id @default(cuid())
   purchaseId String
-  method PaymentType
-  amount Decimal @db.Decimal(15, 2)
-  reference String? @db.VarChar(120)
-  paidAt DateTime @default(now())
-  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  method     PaymentType
+  amount     Decimal     @db.Decimal(15, 2)
+  reference  String?     @db.VarChar(120)
+  paidAt     DateTime    @default(now())
+  purchase   Purchase    @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId], map: "PurchasePayment_purchaseId_fkey")
 }
 
 model Sale {
-  id String @id @default(cuid())
-  invoiceNumber String @unique @db.VarChar(60)
-  status SaleStatus @default(DRAFT)
-  paymentStatus PaymentStatus @default(UNPAID)
-  saleDate DateTime @default(now())
-  subtotal Decimal @db.Decimal(15, 2)
-  discount Decimal @default(0) @db.Decimal(15, 2)
-  tax Decimal @default(0) @db.Decimal(15, 2)
-  grandTotal Decimal @db.Decimal(15, 2)
-  amountPaid Decimal @default(0) @db.Decimal(15, 2)
-  change Decimal @default(0) @db.Decimal(15, 2)
-  customerId String?
-  storeId String
-  warehouseId String
-  cashierId String
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  store Store @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  cashier User @relation(fields: [cashierId], references: [id], onDelete: Restrict)
-  items SaleItem[]
-  payments SalePayment[]
-  returns SaleReturn[]
-  createdAt DateTime @default(now())
+  id            String             @id @default(cuid())
+  invoiceNumber String             @unique @db.VarChar(60)
+  status        SaleStatus         @default(DRAFT)
+  paymentStatus PaymentStatus      @default(UNPAID)
+  saleDate      DateTime           @default(now())
+  subtotal      Decimal            @db.Decimal(15, 2)
+  discount      Decimal            @default(0.00) @db.Decimal(15, 2)
+  tax           Decimal            @default(0.00) @db.Decimal(15, 2)
+  grandTotal    Decimal            @db.Decimal(15, 2)
+  amountPaid    Decimal            @default(0.00) @db.Decimal(15, 2)
+  change        Decimal            @default(0.00) @db.Decimal(15, 2)
+  customerId    String?
+  storeId       String
+  warehouseId   String
+  cashierId     String
+  createdAt     DateTime           @default(now())
+  checkoutKey   String?            @unique @db.Char(36)
+  checkoutHash  String?            @db.Char(64)
+  refunds       RefundSettlement[]
+  cashier       User               @relation(fields: [cashierId], references: [id])
+  customer      Customer?          @relation(fields: [customerId], references: [id])
+  store         Store              @relation(fields: [storeId], references: [id])
+  warehouse     Warehouse          @relation(fields: [warehouseId], references: [id])
+  items         SaleItem[]
+  payments      SalePayment[]
+  returns       SaleReturn[]
+
   @@index([saleDate, storeId])
   @@index([cashierId])
+  @@index([status, saleDate])
+  @@index([customerId], map: "Sale_customerId_fkey")
+  @@index([storeId], map: "Sale_storeId_fkey")
+  @@index([warehouseId], map: "Sale_warehouseId_fkey")
 }
-model SaleItem { id String @id @default(cuid())
-  saleId String
-  productId String
-  quantity Decimal @db.Decimal(15, 3)
-  unitPrice Decimal @db.Decimal(15, 2)
-  unitCost Decimal @db.Decimal(15, 2)
-  discount Decimal @default(0) @db.Decimal(15, 2)
-  tax Decimal @default(0) @db.Decimal(15, 2)
-  subtotal Decimal @db.Decimal(15, 2)
-  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+model SaleItem {
+  id            String           @id @default(cuid())
+  saleId        String
+  productId     String
+  quantity      Decimal          @db.Decimal(15, 3)
+  unitPrice     Decimal          @db.Decimal(15, 2)
+  unitCost      Decimal          @db.Decimal(15, 2)
+  discount      Decimal          @default(0.00) @db.Decimal(15, 2)
+  tax           Decimal          @default(0.00) @db.Decimal(15, 2)
+  subtotal      Decimal          @db.Decimal(15, 2)
+  product       Product          @relation(fields: [productId], references: [id])
+  sale          Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  returnedItems SaleReturnItem[] @relation("SaleReturnOriginalItem")
+
+  @@index([productId], map: "SaleItem_productId_fkey")
+  @@index([saleId], map: "SaleItem_saleId_fkey")
 }
-model SalePayment { id String @id @default(cuid())
-  saleId String
-  method PaymentType
-  amount Decimal @db.Decimal(15, 2)
-  reference String? @db.VarChar(120)
-  paidAt DateTime @default(now())
-  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+model SalePayment {
+  id        String      @id @default(cuid())
+  saleId    String
+  method    PaymentType
+  amount    Decimal     @db.Decimal(15, 2)
+  reference String?     @db.VarChar(120)
+  paidAt    DateTime    @default(now())
+  sale      Sale        @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId], map: "SalePayment_saleId_fkey")
 }
-model SaleReturn { id String @id @default(cuid())
-  number String @unique @db.VarChar(50)
-  saleId String
-  reason String @db.Text
-  amount Decimal @db.Decimal(15, 2)
-  createdAt DateTime @default(now())
-  sale Sale @relation(fields: [saleId], references: [id], onDelete: Restrict)
-  items SaleReturnItem[]
+
+model SaleReturn {
+  id          String            @id @default(cuid())
+  number      String            @unique @db.VarChar(50)
+  saleId      String
+  reason      String            @db.Text
+  amount      Decimal           @db.Decimal(15, 2)
+  createdAt   DateTime          @default(now())
+  createdById String
+  requestKey  String?           @unique @db.Char(36)
+  requestHash String?           @db.Char(64)
+  settlement  RefundSettlement?
+  createdBy   User              @relation("SaleReturnProcessor", fields: [createdById], references: [id])
+  sale        Sale              @relation(fields: [saleId], references: [id])
+  items       SaleReturnItem[]
+
+  @@index([createdById], map: "SaleReturn_createdById_fkey")
+  @@index([saleId], map: "SaleReturn_saleId_fkey")
 }
-model SaleReturnItem { id String @id @default(cuid())
-  returnId String
+
+model RefundSettlement {
+  id            String      @id @default(cuid())
+  refundNumber  String      @unique @db.VarChar(50)
+  saleId        String
+  saleReturnId  String      @unique
+  storeId       String
+  processedById String
+  method        PaymentType
+  amount        Decimal     @db.Decimal(15, 2)
+  reference     String?     @db.VarChar(120)
+  settledAt     DateTime    @default(now())
+  processedBy   User        @relation(fields: [processedById], references: [id])
+  sale          Sale        @relation(fields: [saleId], references: [id])
+  saleReturn    SaleReturn  @relation(fields: [saleReturnId], references: [id])
+  store         Store       @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, settledAt])
+  @@index([saleId, settledAt])
+  @@index([processedById], map: "RefundSettlement_processedById_fkey")
+}
+
+model SaleReturnItem {
+  id         String     @id @default(cuid())
+  returnId   String
   saleItemId String
-  quantity Decimal @db.Decimal(15, 3)
-  amount Decimal @db.Decimal(15, 2)
-  return SaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  quantity   Decimal    @db.Decimal(15, 3)
+  amount     Decimal    @db.Decimal(15, 2)
+  return     SaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem   @relation("SaleReturnOriginalItem", fields: [saleItemId], references: [id])
+
+  @@index([saleItemId])
+  @@index([returnId], map: "SaleReturnItem_returnId_fkey")
 }
 
-model PaymentMethod { id String @id @default(cuid())
-  type PaymentType @unique
-  name String @db.VarChar(50)
-  active Boolean @default(true)
+model PaymentMethod {
+  id     String      @id @default(cuid())
+  type   PaymentType @unique
+  name   String      @db.VarChar(50)
+  active Boolean     @default(true)
 }
-model Promotion { id String @id @default(cuid())
-  name String @db.VarChar(120)
-  type PromotionType
-  value Decimal @db.Decimal(15, 2)
-  minimumPurchase Decimal @default(0) @db.Decimal(15, 2)
-  startsAt DateTime
-  endsAt DateTime
-  active Boolean @default(true)
-  categoryId String?
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  products PromotionProduct[]
+
+model Promotion {
+  id              String             @id @default(cuid())
+  name            String             @db.VarChar(120)
+  type            PromotionType
+  value           Decimal            @db.Decimal(15, 2)
+  minimumPurchase Decimal            @default(0.00) @db.Decimal(15, 2)
+  startsAt        DateTime
+  endsAt          DateTime
+  active          Boolean            @default(true)
+  categoryId      String?
+  category        Category?          @relation(fields: [categoryId], references: [id])
+  products        PromotionProduct[]
+
+  @@index([categoryId], map: "Promotion_categoryId_fkey")
 }
-model PromotionProduct { promotionId String
-  productId String
-  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+model PromotionProduct {
+  promotionId String
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
   @@id([promotionId, productId])
+  @@index([productId], map: "PromotionProduct_productId_fkey")
 }
 
-model ExpenseCategory { id String @id @default(cuid())
-  name String @unique @db.VarChar(100)
+model ExpenseCategory {
+  id       String    @id @default(cuid())
+  name     String    @unique @db.VarChar(100)
   expenses Expense[]
 }
-model Expense { id String @id @default(cuid())
-  number String @unique @db.VarChar(40)
-  amount Decimal @db.Decimal(15, 2)
-  expenseDate DateTime @default(now())
-  description String? @db.Text
+
+model Expense {
+  id            String          @id @default(cuid())
+  number        String          @unique @db.VarChar(40)
+  amount        Decimal         @db.Decimal(15, 2)
+  expenseDate   DateTime        @default(now())
+  description   String?         @db.Text
   paymentMethod PaymentType
-  status ExpenseStatus @default(DRAFT)
-  categoryId String
-  storeId String
-  createdById String
-  category ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  store Store @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt DateTime @default(now())
-}
-model Account { id String @id @default(cuid())
-  code String @unique @db.VarChar(30)
-  name String @db.VarChar(120)
-  type AccountType
-  active Boolean @default(true)
-  entries JournalEntry[]
-}
-model Journal { id String @id @default(cuid())
-  number String @unique @db.VarChar(50)
-  journalDate DateTime @default(now())
-  description String? @db.Text
-  sourceType String? @db.VarChar(40)
-  sourceId String? @db.VarChar(100)
-  entries JournalEntry[]
-  createdAt DateTime @default(now())
-}
-model JournalEntry { id String @id @default(cuid())
-  journalId String
-  accountId String
-  debit Decimal @default(0) @db.Decimal(15, 2)
-  credit Decimal @default(0) @db.Decimal(15, 2)
-  journal Journal @relation(fields: [journalId], references: [id], onDelete: Cascade)
-  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  status        ExpenseStatus   @default(DRAFT)
+  categoryId    String
+  storeId       String
+  createdById   String
+  createdAt     DateTime        @default(now())
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  createdBy     User            @relation(fields: [createdById], references: [id])
+  store         Store           @relation(fields: [storeId], references: [id])
+
+  @@index([categoryId], map: "Expense_categoryId_fkey")
+  @@index([createdById], map: "Expense_createdById_fkey")
+  @@index([storeId], map: "Expense_storeId_fkey")
 }
 
-model Setting { key String @id @db.VarChar(100)
-  value Json
+model Account {
+  id      String         @id @default(cuid())
+  code    String         @unique @db.VarChar(30)
+  name    String         @db.VarChar(120)
+  type    AccountType
+  active  Boolean        @default(true)
+  entries JournalEntry[]
+}
+
+model Journal {
+  id          String         @id @default(cuid())
+  number      String         @unique @db.VarChar(50)
+  journalDate DateTime       @default(now())
+  description String?        @db.Text
+  sourceType  String?        @db.VarChar(40)
+  sourceId    String?        @db.VarChar(100)
+  createdAt   DateTime       @default(now())
+  entries     JournalEntry[]
+}
+
+model JournalEntry {
+  id        String  @id @default(cuid())
+  journalId String
+  accountId String
+  debit     Decimal @default(0.00) @db.Decimal(15, 2)
+  credit    Decimal @default(0.00) @db.Decimal(15, 2)
+  account   Account @relation(fields: [accountId], references: [id])
+  journal   Journal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  @@index([accountId], map: "JournalEntry_accountId_fkey")
+  @@index([journalId], map: "JournalEntry_journalId_fkey")
+}
+
+model Setting {
+  key       String   @id @db.VarChar(100)
+  value     Json
   updatedAt DateTime @updatedAt
 }
-model AuditLog { id String @id @default(cuid())
-  userId String?
-  action String @db.VarChar(60)
-  module String @db.VarChar(60)
-  entity String? @db.VarChar(80)
-  entityId String? @db.VarChar(100)
-  oldValue Json?
-  newValue Json?
-  ip String? @db.VarChar(45)
-  userAgent String? @db.VarChar(500)
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String   @db.VarChar(60)
+  module    String   @db.VarChar(60)
+  entity    String?  @db.VarChar(80)
+  entityId  String?  @db.VarChar(100)
+  oldValue  Json?
+  newValue  Json?
+  ip        String?  @db.VarChar(45)
+  userAgent String?  @db.VarChar(500)
   createdAt DateTime @default(now())
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user      User?    @relation(fields: [userId], references: [id])
+
   @@index([module, createdAt])
   @@index([entity, entityId])
+  @@index([userId], map: "AuditLog_userId_fkey")
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  RECEIVED
+  PARTIALLY_RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum SaleStatus {
+  DRAFT
+  COMPLETED
+  PARTIAL_RETURN
+  RETURNED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+enum PaymentType {
+  CASH
+  CARD
+  BANK_TRANSFER
+  E_WALLET
+  OTHER
+}
+
+enum MovementType {
+  PURCHASE
+  SALE
+  SALE_RETURN
+  PURCHASE_RETURN
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  INITIAL_STOCK
+}
+
+enum StockTransferStatus {
+  DRAFT
+  PENDING
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+enum StockAdjustmentStatus {
+  DRAFT
+  APPROVED
+  COMPLETED
+  CANCELLED
+}
+
+enum PurchaseReturnStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum PromotionType {
+  PERCENTAGE
+  FIXED
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum ExpenseStatus {
+  DRAFT
+  APPROVED
+  VOID
 }
